@@ -1,0 +1,259 @@
+==============================================================================
+      THE ABSOLUTE BEGINNER'S GUIDE TO RUNNING THE MP3 BOT
+           (Redis + Celery + Local API Architecture)
+==============================================================================
+
+BEFORE YOU START:
+-----------------
+1. You need a VPS (Virtual Private Server). 
+   - Recommended: DigitalOcean, Hetzner, or Vultr.
+   - Operating System: Ubuntu 22.04 or Ubuntu 24.04.
+   - Specs: At least 2 CPU Cores and 4GB RAM.
+
+2. You need a Terminal (Command Prompt).
+   - Windows: Download "PuTTY".
+   - Mac/Linux: Use the "Terminal" app.
+
+3. You need 3 pieces of data:
+   - BOT_TOKEN (From @BotFather on Telegram)
+   - API_ID (From https://my.telegram.org)
+   - API_HASH (From https://my.telegram.org)
+
+------------------------------------------------------------------------------
+STEP 1: LOG INTO YOUR SERVER
+------------------------------------------------------------------------------
+1. Open your terminal or PuTTY.
+2. Connect to your server (replace 1.2.3.4 with your server IP):
+   ssh root@1.2.3.4
+3. It will ask for a password. Type it (you won't see the letters) and press Enter.
+
+------------------------------------------------------------------------------
+STEP 2: UPDATE THE SYSTEM (DO NOT SKIP)
+------------------------------------------------------------------------------
+Copy and paste these commands one by one. Press Enter after each.
+
+apt update
+apt upgrade -y
+
+------------------------------------------------------------------------------
+STEP 3: INSTALL REDIS (THE DATABASE) - *FIXED*
+------------------------------------------------------------------------------
+This fixes the "Connection Refused" error.
+
+1. Install Redis:
+   apt install redis-server -y
+
+2. Start Redis immediately:
+   systemctl start redis-server
+
+3. Enable it so it starts automatically when server restarts:
+   systemctl enable redis-server
+
+4. TEST IT. Run this command:
+   redis-cli ping
+
+   -> IF you see "PONG", it works. Proceed.
+   -> IF you see an error, restart the server (`reboot`) and try again.
+
+------------------------------------------------------------------------------
+STEP 4: INSTALL VITAL TOOLS (FFMPEG, PYTHON, NODE)
+------------------------------------------------------------------------------
+1. Install FFmpeg (for audio conversion) and Python tools:
+   apt install ffmpeg python3-pip python3-venv git build-essential -y
+
+2. Install Node.js (Required to fix YouTube errors):
+   curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+   apt install -y nodejs
+
+------------------------------------------------------------------------------
+STEP 5: SET UP THE TELEGRAM LOCAL SERVER
+------------------------------------------------------------------------------
+This is the hardest part. It takes 15 minutes to compile. Be patient.
+
+1. Install CMake and Compilers:
+   apt install make cmake g++ gperf zlib1g-dev libssl-dev -y
+
+2. Download the source code:
+   cd /root
+   git clone --recursive https://github.com/tdlib/telegram-bot-api.git
+
+3. Go into the folder:
+   cd telegram-bot-api
+   mkdir build
+   cd build
+
+4. Compile (This will take time, wait until it finishes):
+   cmake -DCMAKE_BUILD_TYPE=Release ..
+   cmake --build . --target install
+
+------------------------------------------------------------------------------
+STEP 6: SET UP YOUR BOT FOLDERS
+------------------------------------------------------------------------------
+1. Go back to the main folder:
+   cd /root
+
+2. Create a folder for your bot:
+   mkdir mp3bot
+   cd mp3bot
+
+3. Set up the Python environment (Isolated space):
+   python3 -m venv venv
+   source venv/bin/activate
+
+4. Install the Python Libraries:
+   pip install --upgrade pip
+   pip install python-telegram-bot yt-dlp redis celery requests h11 httpx[http2]
+
+------------------------------------------------------------------------------
+STEP 7: CREATE THE FILES
+------------------------------------------------------------------------------
+We need to create 4 files. We will use `nano` (a text editor).
+
+FILE A: config.py
+-----------------
+1. Type: `nano config.py`
+2. Paste the code below (Right-click to paste in PuTTY):
+
+   BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+   LOCAL_API_URL = "http://localhost:8081/bot"
+   DOWNLOAD_DIR = "downloads"
+   REDIS_URL = "redis://localhost:6379/0"
+
+3. Replace YOUR_BOT_TOKEN_HERE with your actual token.
+4. Save: Press `Ctrl+O`, then `Enter`, then `Ctrl+X`.
+
+FILE B: cookies.txt
+-------------------
+1. Type: `nano cookies.txt`
+2. Paste your Netscape-formatted cookies content here.
+3. Save: `Ctrl+O`, `Enter`, `Ctrl+X`.
+
+FILE C: tasks.py
+----------------
+1. Type: `nano tasks.py`
+2. Paste the COMPLETE `tasks.py` code provided in the previous chat.
+3. Save: `Ctrl+O`, `Enter`, `Ctrl+X`.
+
+FILE D: bot.py
+--------------
+1. Type: `nano bot.py`
+2. Paste the COMPLETE `bot.py` code provided in the previous chat.
+3. Save: `Ctrl+O`, `Enter`, `Ctrl+X`.
+
+FILE E: cookie_pool
+--------------
+1. Type: `mkdir cookie_pool`
+2. Type: 'Type: `cd cookie_pool`'
+3. Type: `nano cookies_1.txt` {make more file like cookies_2.txt, cookies_3.txt and soo on}
+4. Paste the COMPLETE 'cookies_1.txt'
+4. Save: `Ctrl+O`, `Enter`, `Ctrl+X`.
+
+------------------------------------------------------------------------------
+STEP 8: RUN EVERYTHING (THE 3-WINDOW METHOD)
+------------------------------------------------------------------------------
+To see if it works, we will run it manually first. You need 3 separate SSH windows.
+
+WINDOW 1: The Local API Server
+------------------------------
+Run this command (Replace with your API_ID and HASH):
+telegram-bot-api --api-id=123456 --api-hash=abcdef123456 --local
+
+*Keep this window open. Do not close it.*
+
+WINDOW 2: The Worker (Processor)
+--------------------------------
+1. Connect to server.
+2. Go to folder: `cd /root/mp3bot`
+3. Activate Python: `source venv/bin/activate`
+4. Start Worker:
+   celery -A tasks worker --loglevel=info --concurrency=4
+
+*You should see a list of tasks ready. Keep window open.*
+
+WINDOW 3: The Bot (Interface)
+-----------------------------
+1. Connect to server.
+2. Go to folder: `cd /root/mp3bot`
+3. Activate Python: `source venv/bin/activate`
+4. Start Bot:
+   python bot.py
+
+*It should say "Frontend Bot is listening...".*
+
+------------------------------------------------------------------------------
+STEP 9: MAKE IT RUN FOREVER (AUTO-START)
+------------------------------------------------------------------------------
+If you close the windows, the bot stops. To make it run 24/7 automatically:
+
+1. Stop the processes in Windows 2 and 3 (Ctrl+C).
+2. We will create "Services".
+
+SERVICE 1: The Local API
+Type: `nano /etc/systemd/system/telegram-api.service`
+Paste:
+   [Unit]
+   Description=Telegram Local API
+   After=network.target
+
+   [Service]
+   User=root
+   ExecStart=/usr/local/bin/telegram-bot-api --api-id=YOUR_ID --api-hash=YOUR_HASH --local
+   Restart=always
+
+   [Install]
+   WantedBy=multi-user.target
+
+(Replace YOUR_ID and YOUR_HASH). Save and Exit.
+
+SERVICE 2: The Worker
+Type: `nano /etc/systemd/system/mp3worker.service`
+Paste:
+   [Unit]
+   Description=Celery Worker
+   After=network.target redis-server.service
+
+   [Service]
+   User=root
+   WorkingDirectory=/root/mp3bot
+   ExecStart=/root/mp3bot/venv/bin/celery -A tasks worker --loglevel=info --concurrency=4
+   Restart=always
+
+   [Install]
+   WantedBy=multi-user.target
+
+Save and Exit.
+
+SERVICE 3: The Bot
+Type: `nano /etc/systemd/system/mp3bot.service`
+Paste:
+   [Unit]
+   Description=Bot Frontend
+   After=network.target
+
+   [Service]
+   User=root
+   WorkingDirectory=/root/mp3bot
+   ExecStart=/root/mp3bot/venv/bin/python bot.py
+   Restart=always
+
+   [Install]
+   WantedBy=multi-user.target
+
+Save and Exit.
+
+START EVERYTHING:
+Run these commands:
+   systemctl daemon-reload
+   systemctl enable telegram-api mp3worker mp3bot
+   systemctl start telegram-api mp3worker mp3bot
+
+------------------------------------------------------------------------------
+STEP 10: DONE!
+------------------------------------------------------------------------------
+Your bot is now running in the background.
+- If the server restarts, the bot restarts automatically.
+- It uses Redis to handle the queue.
+- It uses the Local API to upload large files fast.
+
+Check status anytime with:
+   systemctl status mp3worker
